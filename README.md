@@ -187,7 +187,7 @@ All uploaded files are immediately renamed using a UUID-based scheme:
 
 ```
 # Original filename (never stored or exposed)
-WhatsApp Image 2025-12-24 at 09.32.14.jpeg
+brain_mri_scan.jpeg
 
 # Stored as
 input_3f8a1c2b_20260530_141022.jpeg
