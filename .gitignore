@@ -1,2 +1,13 @@
 __pycache__/
 *.pyc
+
+.env
+
+static/uploads/*
+static/outputs/*
+static/reports/*
+
+*.pdf
+
+.vscode/
+.idea/
