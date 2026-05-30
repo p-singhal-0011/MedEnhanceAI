@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedEnhance AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&family=Lora:ital,wght@0,400;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo-row">
+      <div class="logo-icon">
+        <i class="ti ti-stethoscope" style="color:#fff;font-size:22px"></i>
+      </div>
+      <span class="logo-text">MedEnhance AI</span>
+    </div>
+    <div class="tagline">Hybrid GAN–Transformer · Clinical Image Restoration</div>
+    <div class="badge-row">
+      <span class="badge blue">GAN</span>
+      <span class="badge teal">Transformer</span>
+      <span class="badge blue">DICOM</span>
+    </div>
+  </header>
+
+  <!-- Upload panel — real POST form so Flask receives the file -->
+  <form id="uploadForm" method="POST" enctype="multipart/form-data">
+    <div class="upload-panel">
+      <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+        <i class="ti ti-scan drop-zone-icon"></i>
+        <div class="drop-zone-title">Drop your medical scan here</div>
+        <div class="drop-zone-sub" id="dropSub">or click to select</div>
+        <div class="format-tags">
+          <span class="ftag">DICOM</span>
+          <span class="ftag">PNG</span>
+          <span class="ftag">JPG</span>
+        </div>
+
+        <div id="uploadStatus" class="upload-status"></div>
+        <input
+          type="file" id="fileInput" name="image"
+          accept=".dcm,.png,.jpg,.jpeg"
+          style="display:none"
+          onchange="handleFile(this)"
+        />
+      </div>
+      <button type="submit" class="btn-enhance" id="enhanceBtn">
+        <i class="ti ti-sparkles"></i> Enhance Scan
+      </button>
+      <div id="processingStatus" class="processing-status"></div>
+    </div>
+  </form>
+
+  <!-- Results — only rendered by Flask when output exists -->
+  {% if output_image %}
+  <div class="results">
+    <div class="compare-grid">
+      <div class="scan-card">
+        <div class="scan-card-header">
+          <span class="scan-label orig">
+            <i class="ti ti-photo" style="font-size:12px;vertical-align:-1px;margin-right:4px"></i>
+            Original scan
+          </span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">INPUT</span>
+        </div>
+        <div class="scan-img-wrap">
+          <img src="{{ input_image }}" alt="Original medical scan" />
+        </div>
+      </div>
+
+      <div class="scan-card" style="border-color:rgba(0,229,200,0.2)">
+        <div class="scan-card-header">
+          <span class="scan-label enhanced">
+            <i class="ti ti-wand" style="font-size:12px;vertical-align:-1px;margin-right:4px"></i>
+            AI enhanced
+          </span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--teal)">AI OUTPUT</span>
+        </div>
+        <div class="scan-img-wrap">
+          <img src="{{ output_image }}" alt="Enhanced medical scan" />
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics-bar">
+      <div class="metric-card ssim">
+        <div class="metric-label">SSIM Accuracy</div>
+        <div class="metric-value teal">{{ metrics.ssim }}</div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:2px">
+          Structural similarity index
+        </div>
+        <div class="metric-bar-wrap">
+          <div class="metric-fill teal"
+               style="width:{{ (metrics.ssim | float * 100) | round(2) }}%">
+          </div>
+        </div>
+      </div>
+
+      <div class="metric-card psnr">
+        <div class="metric-label">PSNR Gain</div>
+        <div class="metric-value amber">
+          {{ metrics.psnr }} <span class="metric-unit">dB</span>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:2px">
+          Peak signal-to-noise ratio
+        </div>
+        <div class="metric-bar-wrap">
+          {# Normalise 20–50 dB range to 0–100% #}
+          <div class="metric-fill amber"
+               style="width:{{ [[((metrics.psnr | float) - 20) / 30 * 100, 0] | max, 100] | min | round }}%">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="report-card">
+      <div class="report-top">
+        <div class="report-title">
+          <i class="ti ti-microscope"></i> Clinical Insight
+        </div>
+        <div class="lang-pills">
+          <button class="lpill active" onclick="setLang('en')" id="btn-en">English</button>
+          <button class="lpill"        onclick="setLang('hi')" id="btn-hi">हिंदी</button>
+        </div>
+      </div>
+
+      <p class="report-body" id="reportText">
+        {{ report.en if report else 'Clinical analysis will appear here after you run the deep restoration.' }}
+      </p>
+
+      <div class="action-row">
+        <a href="{{ output_image }}" download="enhanced_scan.png" class="btn-dl scan">
+          <i class="ti ti-download"></i> Download Scan
+        </a>
+        <a href="{{ url_for('download_report') }}" class="btn-dl pdf">
+          <i class="ti ti-file-description"></i> Clinical PDF
+        </a>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+
+  <!-- Chat FAB — only shown when results exist -->
+  <button class="chat-fab" id="chatFab" onclick="toggleChat()">
+    <i class="ti ti-message-2"></i>
+  </button>
+
+  <div class="chat-box" id="chatBox">
+    <div class="chat-head">
+      <div class="chat-head-left">
+        <div class="chat-dot"></div>
+        <div>
+          <div class="chat-head-title">Clinical Assistant</div>
+          <div class="chat-head-sub">AI · Active</div>
+        </div>
+      </div>
+      <button class="chat-close" onclick="toggleChat()">
+        <i class="ti ti-x"></i>
+      </button>
+    </div>
+    <div class="chat-msgs" id="chatMsgs">
+      <div class="msg ai">
+        Hello! I've analyzed both scans. Ask me anything about 
+        contrast, noise reduction, edge sharpness, or structural 
+        visibility improvements.
+      </div>
+
+      <div class="typing-indicator" id="typingIndicator">
+        AI analyzing scan...
+      </div>
+    </div>
+    <div class="chat-footer">
+      <input
+        class="chat-input" id="chatInput"
+        placeholder="Ask about contrast, noise, or structures…"
+        onkeypress="if(event.key==='Enter') sendMsg()"
+      />
+      <button class="chat-send" id="sendBtn" onclick="sendMsg()">
+        <i class="ti ti-send"></i>
+      </button>
+    </div>
+  </div>
+
+  {% endif %}
+
+  <footer>© 2026 MedEnhance AI &nbsp;|&nbsp; Hybrid GAN–Transformer Project</footer>
+</div>
+
+<script>
+  /* Report text injected from Flask — powers the EN/HI switcher */
+  const reportData = {
+    en: {{ report.en | tojson if report else '""' }},
+    hi: {{ report.hi | tojson if report else '""' }}
+  };
+
+  /* Show chosen filename in the drop zone */
+  function handleFile(input){
+
+      if(input.files[0]){
+
+          const file = input.files[0];
+
+          const dropZone =
+              document.querySelector(".drop-zone");
+
+          const uploadStatus =
+              document.getElementById("uploadStatus");
+
+          const dropSub =
+              document.getElementById("dropSub");
+
+          dropZone.classList.add("active");
+
+          dropSub.innerHTML =
+              "Scan ready for enhancement";
+
+          uploadStatus.innerHTML =
+              `✔ ${file.name}`;
+      }
+  }
+
+  const uploadForm =
+    document.getElementById('uploadForm');
+
+  uploadForm.addEventListener('submit', function(){
+
+      const btn =
+          document.getElementById('enhanceBtn');
+
+      const processing =
+          document.getElementById('processingStatus');
+
+      const dropZone =
+          document.querySelector('.drop-zone');
+
+      btn.disabled = true;
+
+      btn.innerHTML =
+          '<i class="ti ti-loader-2"></i> Initializing AI Pipeline';
+
+      dropZone.classList.add('processing-animate');
+
+      const stages = [
+
+          'Loading GAN Generator...',
+          'Applying Transformer Refinement...',
+          'Enhancing Structural Features...',
+          'Generating Clinical Metrics...',
+          'Preparing Visualization Output...'
+      ];
+
+      let i = 0;
+
+      processing.innerHTML = stages[0];
+
+      const interval = setInterval(() => {
+
+          i++;
+
+          if(i < stages.length){
+
+              processing.innerHTML = stages[i];
+          }
+
+      }, 1400);
+
+  });
+
+  /* Spinner while Flask processes the upload */
+  document.getElementById('uploadForm').onsubmit = function () {
+    const btn = document.getElementById('enhanceBtn');
+    btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Processing…';
+    btn.disabled = true;
+    const s = document.createElement('style');
+    s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(s);
+  };
+
+  /* Switch report language */
+  function setLang(lang) {
+    const text = reportData[lang];
+    if (text) document.getElementById('reportText').textContent = text;
+    document.querySelectorAll('.lpill').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-' + lang).classList.add('active');
+  }
+
+  /* Chat widget open/close */
+  function toggleChat() {
+    document.getElementById('chatBox').classList.toggle('open');
+    document.getElementById('chatFab').classList.toggle('hidden');
+  }
+
+  /* Send message to Flask /chat and display response */
+  async function sendMsg() {
+
+      const input =
+          document.getElementById('chatInput');
+
+      const msgs =
+          document.getElementById('chatMsgs');
+
+      const sendBtn =
+          document.getElementById('sendBtn');
+
+      const typing =
+          document.getElementById('typingIndicator');
+
+      const question =
+          input.value.trim();
+
+      if (!question) return;
+
+      appendMsg('user', question);
+
+      input.value = '';
+
+      input.disabled = true;
+
+      sendBtn.disabled = true;
+
+      msgs.scrollTop = msgs.scrollHeight;
+
+      /* Show typing indicator */
+      typing.style.display = 'block';
+
+      msgs.scrollTop = msgs.scrollHeight;
+
+      try {
+
+          const res = await fetch('/chat', {
+
+              method: 'POST',
+
+              headers: {
+                  'Content-Type': 'application/json'
+              },
+
+              body: JSON.stringify({
+                  question
+              })
+          });
+
+          const data = await res.json();
+
+          /* Hide typing indicator */
+          typing.style.display = 'none';
+
+          appendMsg(
+              'ai',
+              data.response || 'No response received.'
+          );
+
+      } catch (err) {
+
+          typing.style.display = 'none';
+
+          appendMsg(
+              'ai',
+              "Couldn't reach the analysis engine. Please check your connection."
+          );
+
+      } finally {
+
+          input.disabled = false;
+
+          sendBtn.disabled = false;
+
+          input.focus();
+
+          msgs.scrollTop = msgs.scrollHeight;
+      }
+  }
+
+  function appendMsg(sender, text) {
+    const msgs = document.getElementById('chatMsgs');
+    const div  = document.createElement('div');
+    div.className   = 'msg ' + sender;
+    div.textContent = text;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    return div;
+  }
+</script>
+</body>
+</html>
